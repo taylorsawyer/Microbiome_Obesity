@@ -1,0 +1,236 @@
+# Microbiome Course Research Project
+## Obesity Dataset, Taylor Sawyer Analysis 
+
+# Load Packages 
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(vegan)
+library(plyr)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(data.table)
+library(ggvenn)
+library(phyloseq)
+library(microbiome)
+library(knitr)
+library(reshape)
+library(ape)
+
+# Import data 
+data <- read_csv("Desktop/Microbiome Project Data/GFSC2_RRN_phyloseq_data_microbiomeanalyst_obesity_diet_distribute.csv")
+
+otu <- read_csv("Desktop/Microbiome Project Data/GFSC2_RRN_phyloseq_otu_obesity_diet_distribute.csv")
+
+taxa <- read_csv("Desktop/Microbiome Project Data/GFSC2_RRN_phyloseq_tax_microbiomeanalyst.csv")
+
+# adjust first col to serve as row names
+data2 <- data.frame(data, row.names = 1)
+taxa2 <- data.frame(taxa, row.names = 1)
+otu2 <- data.frame(otu, row.names = 1)
+
+# see number of OTU's in df
+# total # of ASVS
+nrow((data2)) # 315 total OTU
+
+# transpose otu table so taxa can be added
+t.otu2 <- t(otu2)
+
+# merge taxa and otu table by row names
+taxatable <- merge(otu2,taxa2, by="row.names")
+
+# adjust row names 
+taxatable = data.frame(taxatable, row.names = 1)
+
+# format meta data to our specific question (BMI data)
+bmidata <- data2 %>% select(BMI)
+age.data <- data2 %>% select(age)
+
+# add character identifiers 
+bmi.names <- filtbmi %>%
+  mutate(Label = case_when(BMI < 25 ~ 'Healthy', 
+                           BMI > 30 ~ 'Obese'))
+
+# remove rows containing NA's
+filtbmi <- bmi.names[complete.cases(bmi.names), ]
+
+# transpose taxa table so OTU name lines up with bmi df
+t.taxa <- t(taxatable)
+
+# merge taxa and BMI df
+merge <-merge(t.taxa,filtbmi, by="row.names")
+
+# change character strings to numeric 
+merge[] <- lapply(merge, type.convert, as.is = TRUE)
+
+# adjust row names 
+merge2 <- data.frame(merge, row.names = 1)
+
+# venn diagram formation
+## seperate all healthy and obese individuals 
+healthy <- filter(merge2, Label %in% c("Healthy"))
+obese <- filter(merge2, Label %in% c("Obese"))
+
+# remove character information 
+rmhealthy <- subset(healthy, select = -c(Label, BMI))
+rmobese <- subset(obese, select = -c(Label, BMI))
+
+# remove rows containing all zero
+finalhealthy <- rmhealthy[,colSums(rmhealthy[])>0]
+finalobese <- rmobese[,colSums(rmobese[])>0]
+
+# make names 
+healthy_names <- names(finalhealthy)
+obese_names <- names(finalobese)
+
+# Make a list containing a list of each niches OTU
+venn_data <- list(
+  Healthy = healthy_names,
+  Obese = obese_names
+)
+
+# construct the venn
+venn <- ggvenn(
+  venn_data,
+  fill_color = c("#E66101", "#0021A5"),
+  stroke_size = 0.7, set_name_size = 7
+)
+
+# identify unique OTU's to each group
+shared <- Reduce(intersect, list(healthy_names, obese_names))
+shared <- as.data.frame(shared)
+
+library(gplots)
+ItemsList <- venn(venn_data, show.plot = TRUE)
+lengths(attributes(ItemsList)$intersections)
+attributes(ItemsList)$intersections
+
+
+# histogram of the distribution of BMI
+hist(log10(filtbmi$BMI))
+hist(sqrt(filtbmi$BMI))
+hist((filtbmi$BMI)^(1/3))
+
+#PCoA plot
+num.merge <- subset(merge, select = -c(Label, BMI) )
+num.merge <- data.frame(num.merge, row.names = 1)
+bray_dist<-vegdist(num.merge,method = "bray")
+df.pcoa<-pcoa(bray_dist,correction = "cailliez")
+df.pcoa$vectors
+df.plot<-data.frame(df.pcoa$vectors)
+df.pcoa$values
+x_label<-round(df.pcoa$values$Rel_corr_eig[1]*100,2)
+y_label<-round(df.pcoa$values$Rel_corr_eig[2]*100,2)
+x_label
+y_label
+
+ggplot(data,aes(x=Axis.1,y=Axis.2))+ geom_point(alpha=1, size=7) + theme_bw() + theme(panel.grid = element_blank()) + labs(x=paste0("PCoA1 (",x_label,"%)"), y=paste0("PCoA2 (",y_label,"%)")) + geom_vline(xintercept = 0, color = 'gray', size = 0.4) + geom_hline(yintercept = 0, color = 'gray', size = 0.4) + theme(panel.grid = element_blank(), panel.background = element_rect(color = 'black', fill = 'transparent', size = 1.2),legend.title=element_blank()) + theme(axis.text = element_text(colour = 'black', size = 20), axis.ticks = element_line(colour = 'black', size = 0.6), axis.title = element_text(size = 22), legend.key.size = unit(0.9, 'cm'), legend.text = element_text(size=18), axis.ticks.x = element_line(size=0.8), axis.ticks.y = element_line(size=0.8), axis.ticks.length = unit(0.18, 'cm') ) 
+
+
+# second attempt PCoA
+pcoa.plot(num.merge, meta=filtbmi, rank="c",
+          factors=c(BMI="Healthy", BMI="Obese"))
+
+
+# plotting OTUs by phylum
+GP.ord <- ordinate(num.merge, "NMDS", "bray")
+p1 = plot_ordination(GP1, GP.ord, type="taxa", color="Phylum", title="taxa")
+print(p1)
+
+
+
+
+
+### AGE Analysis 
+age.names <- age.data %>%
+  mutate(Label = case_when(age >= 10 & age <= 19 ~ 'denarian',
+                           age >= 20 & age <= 29 ~ 'vicenarian',
+                           age >= 30 & age <= 39 ~ 'tricenaria',
+                           age >= 40 & age <= 49 ~ 'quadragenarian',
+                           age >= 50 & age <= 59 ~ 'quinquagenarian',
+                           age >= 60 & age <= 69 ~ 'sexagenarian'))
+
+# merge bmi with age
+bmi.age.merge <-merge(merge2,age.names, by="row.names")
+
+# adjust row names 
+bmi.age.merge <- data.frame(bmi.age.merge, row.names = 1)
+
+# venn diagram formation
+## seperate by bmi and age groups 
+#denarian
+healthydenarian <- filter(bmi.age.merge, Label.x %in% "Healthy" & Label.y %in% "denarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmhealthydenarian<- healthydenarian[,colSums(healthydenarian[])>0]
+healthyden <- names(rmhealthydenarian)
+
+obesedenarian <- filter(bmi.age.merge, Label.x %in% "Obese" & Label.y %in% "denarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmobesedenarian <- obesedenarian[,colSums(obesedenarian[])>0]
+obeseden <- names(rmobesedenarian)
+
+#vicenarian
+healthyvicenarian <- filter(bmi.age.merge, Label.x %in% "Healthy" & Label.y %in% "vicenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmhealthyvicenarian <- healthyvicenarian[,colSums(healthyvicenarian[])>0]
+healthyvic <- names(rmhealthyvicenarian)
+
+obesevicenarian <- filter(bmi.age.merge, Label.x %in% "Obese" & Label.y %in% "vicenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmobesevicenarian <- obesevicenarian[,colSums(obesevicenarian[])>0]
+obesevic <- names(rmobesevicenarian)
+
+#tricenarian
+healthytricenarian <- filter(bmi.age.merge, Label.x %in% "Healthy" & Label.y %in% "tricenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmhealthytricenarian <- healthytricenarian[,colSums(healthytricenarian[])>0]
+healthytri <- names(rmhealthytricenarian)
+
+obesetricenarian <- filter(bmi.age.merge, Label.x %in% "Obese" & Label.y %in% "tricenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmobesetricenarian <- obesetricenarian[,colSums(obesetricenarian[])>0]
+obesetri <- names(rmobesetricenarian)
+
+#quadragenarian
+healthyquadragenarian <- filter(bmi.age.merge, Label.x %in% "Healthy" & Label.y %in% "quadragenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmhealthyquadragenarian <- healthyquadragenarian[,colSums(healthyquadragenarian[])>0]
+healthyquad <- names(rmhealthyquadragenarian)
+
+obesequadragenarian <- filter(bmi.age.merge, Label.x %in% "Obese" & Label.y %in% "quadragenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmobesequadragenarian <- obesequadragenarian[,colSums(obesequadragenarian[])>0]
+obesequad <- names(rmobesequadragenarian)
+
+#quinquagenarian
+healthyquinquagenarian <- filter(bmi.age.merge, Label.x %in% "Healthy" & Label.y %in% "quinquagenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmhealthyquinquagenarian <- healthyquinquagenarian[,colSums(healthyquinquagenarian[])>0]
+healthyquin <- names(rmhealthyquinquagenarian)
+
+obesequinquagenarian <- filter(bmi.age.merge, Label.x %in% "Obese" & Label.y %in% "quinquagenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmobesequinquagenarian <- obesequinquagenarian[,colSums(obesequinquagenarian[])>0]
+obesequin <- names(rmobesequinquagenarian)
+
+#sexagenarian
+healthysexagenarian <- filter(bmi.age.merge, Label.x %in% "Healthy" & Label.y %in% "sexagenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y))
+rmhealthysexagenarian <- healthysexagenarian[,colSums(healthysexagenarian[])>0]
+healthysex <- names(rmhealthysexagenarian)
+
+obesesexagenarian <- filter(bmi.age.merge, Label.x %in% "Obese" & Label.y %in% "sexagenarian") %>% subset(select = -c(BMI, Label.x, age, Label.y)) 
+rmobesesexagenarian <- obesesexagenarian[,colSums(obesesexagenarian[])>0]
+obesesex <- names(rmobesesexagenarian)
+
+# Make a list containing a list of each niches OTU
+venn_data <- list(
+  Healthy_Den= healthyden,
+  Obese_Den= obeseden,
+  Healthy_Vic= healthyvic,
+  Obese_Vic= obesevic,
+  Healthy_Tri= healthytri,
+  Obese_Tri= obesetri,
+  Healthy_Quad= healthyquad,
+  Obese_Quad= obesequad,
+  Healthy_Quin= healthyquin,
+  Obese_Quin= obesequin,
+  Healthy_Sex= healthysex,
+  Obese_Sex= obesesex
+)
+
+venn.age.bmi <- ggvenn(
+  venn_data,
+  #fill_color = c("#E66101", "#0021A5"),
+  stroke_size = 0.7, set_name_size = 7
+)
